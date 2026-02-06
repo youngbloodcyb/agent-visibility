@@ -50,77 +50,83 @@ The Vercel Sandbox provides an isolated VM environment where commands execute sa
 
 - Full Linux environment with Node.js runtime
 - Isolated filesystem that can be populated with files
-- Commands run via `sandbox.runCommand()`
-- Working directory discovered via `pwd` command
+- Commands run via bash-tool's instrumented tools
+- Working directory defaults to `/vercel/sandbox/workspace`
 
 ```typescript
 import { Sandbox } from "@vercel/sandbox";
 
 const sandbox = await Sandbox.create({ runtime: "node24" });
-
-// Discover the actual working directory
-const pwdResult = await sandbox.runCommand("pwd");
-const cwd = (await pwdResult.stdout()).trim();
-
-// Upload files to the sandbox
-await sandbox.writeFiles([
-  { path: `${cwd}/workspace/package.json`, content: Buffer.from("...") },
-]);
 ```
 
 ### 2. bash-tool Integration
 
-`bash-tool` wraps Vercel Sandbox and provides hooks for intercepting commands:
+This project uses `bash-tool` to:
+1. **Load files** into the sandbox via the `files` option
+2. **Intercept commands** via `onBeforeBashCall` and `onAfterBashCall` hooks
+3. **Provide AI SDK tools** for agents to use
+
+The `createInstrumentedTools` wrapper combines bash-tool with the session recorder:
 
 ```typescript
-import { createBashTool } from "bash-tool";
+import { createInstrumentedTools, generateDemoFiles } from "@/lib/traversal-recorder";
+
+const { tools, run, recorder, rootPath } = await createInstrumentedTools({
+  sandbox,
+  files: generateDemoFiles(),  // Record<string, string> format
+  onEntry: (entry) => console.log(entry.command),
+  onFilesystemChange: (tree) => console.log("Filesystem updated"),
+});
+
+// Use the run helper for scripted demos
+await run("ls -la");
+await run("cat package.json");
+
+// Or pass tools to an AI agent
+const result = await generateText({
+  model,
+  tools,  // Agent uses these, recording happens automatically
+  prompt: "Explore this codebase...",
+});
+```
+
+The `files` option uses bash-tool's native file loading, which writes files to the sandbox's destination directory before returning the tools.
+
+### 3. Session Recorder
+
+The `SessionRecorder` class manages session state and emits events. It's automatically wired up inside `createInstrumentedTools` via bash-tool's hooks:
+
+```typescript
+// Inside createInstrumentedTools:
+const recorder = new SessionRecorder(rootPath, metadata);
 
 const { tools } = await createBashTool({
   sandbox,
+  files,
+  destination: rootPath,
 
-  // Called before every bash command
-  onBeforeBashCall: ({ command }) => {
-    // Can modify or block commands
-    return undefined;
-  },
-
-  // Called after every bash command completes
   onAfterBashCall: ({ command, result }) => {
-    // Record the command and its output
-    recorder.recordBash(command, {
+    // Automatically record every command
+    const entry = recorder.recordBash(command, {
       stdout: result.stdout,
+      stderr: result.stderr,
       exitCode: result.exitCode,
     });
+
+    onEntry?.(entry);
+
+    // Refresh filesystem on write operations
+    if (entry.operation === "write") {
+      captureFilesystemSnapshot(sandbox, rootPath).then((newTree) => {
+        recorder.setFilesystem(newTree);
+        onFilesystemChange?.(newTree);
+      });
+    }
   },
 });
 ```
 
-### 3. Session Recorder
-
-The `SessionRecorder` class manages session state and emits events:
-
-```typescript
-class SessionRecorder extends EventEmitter {
-  private session: Session;
-
-  recordBash(command: string, result: BashResult): TraversalEntry {
-    const entry = {
-      id: crypto.randomUUID(),
-      tool: "bash",
-      command,
-      operation: classifyCommand(command),  // "read", "list", "write", etc.
-      resolvedPaths: extractPaths(command, this.session.rootPath),
-      stdout: result.stdout,
-      exitCode: result.exitCode,
-      timestamp: Date.now(),
-    };
-
-    this.session.entries.push(entry);
-    this.emit("entry", entry);
-    return entry;
-  }
-}
-```
+The recorder classifies commands, extracts paths, and emits events that can be forwarded to SSE streams.
 
 ## Filesystem Snapshot
 
@@ -405,20 +411,20 @@ function extractPaths(command: string, cwd: string): string[] {
 lib/traversal-recorder/
 ├── index.ts                    # Barrel exports
 ├── types.ts                    # Core interfaces
-├── create-instrumented-tools.ts # bash-tool wrapper
+├── create-instrumented-tools.ts # bash-tool wrapper with recording hooks
 ├── session-recorder.ts         # Session state + EventEmitter
 ├── command-classifier.ts       # Command → Operation
 ├── path-extractor.ts           # Extract paths from commands
 ├── filesystem-snapshot.ts      # Capture directory tree
 ├── storage.ts                  # JSON persistence
-└── demo-files.ts               # Generate test files
+└── demo-files.ts               # Generate demo files (Record<string, string>)
 
 app/api/
 ├── session/
 │   ├── route.ts                # GET all sessions
 │   ├── [id]/route.ts           # GET session by ID
 │   └── live/route.ts           # SSE endpoint
-└── demo/route.ts               # Live demo endpoint
+└── demo/route.ts               # Live demo endpoint (uses createInstrumentedTools)
 
 components/traversal/
 ├── traversal-viewer.tsx        # Main container
@@ -435,8 +441,12 @@ hooks/
 ## Running the Demo
 
 1. Start the dev server: `pnpm dev`
-2. Navigate to `/traversal/live`
+2. Navigate to `/demo`
 3. Click "Start Live Demo"
 4. Watch as the sandbox executes commands and the UI updates in real-time
 
-The demo creates a sandbox, uploads sample project files, and executes a series of exploration commands while streaming events to the UI.
+The demo uses `createInstrumentedTools` to:
+1. Create a Vercel Sandbox
+2. Load demo files via bash-tool's `files` option
+3. Execute exploration commands via the `run` helper
+4. Stream events to the UI via SSE
