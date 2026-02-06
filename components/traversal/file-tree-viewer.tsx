@@ -7,16 +7,17 @@ import {
 } from "@/components/ai-elements/file-tree";
 import { cn } from "@/lib/utils";
 import type { FileNode, Operation } from "@/lib/traversal-recorder/types";
+import { motion, AnimatePresence } from "motion/react";
 import { useMemo } from "react";
 
-const OPERATION_COLORS: Record<Operation, { bg: string; ring: string; text: string }> = {
-  read: { bg: "bg-blue-500/30", ring: "ring-blue-500", text: "text-blue-600 dark:text-blue-400" },
-  list: { bg: "bg-green-500/30", ring: "ring-green-500", text: "text-green-600 dark:text-green-400" },
-  write: { bg: "bg-orange-500/30", ring: "ring-orange-500", text: "text-orange-600 dark:text-orange-400" },
-  navigate: { bg: "bg-purple-500/30", ring: "ring-purple-500", text: "text-purple-600 dark:text-purple-400" },
-  search: { bg: "bg-yellow-500/30", ring: "ring-yellow-500", text: "text-yellow-600 dark:text-yellow-400" },
-  execute: { bg: "bg-red-500/30", ring: "ring-red-500", text: "text-red-600 dark:text-red-400" },
-  other: { bg: "bg-gray-500/30", ring: "ring-gray-500", text: "text-gray-600 dark:text-gray-400" },
+const OPERATION_COLORS: Record<Operation, { bg: string; ring: string; text: string; glow: string }> = {
+  read: { bg: "bg-blue-500/30", ring: "ring-blue-500", text: "text-blue-600 dark:text-blue-400", glow: "0 0 20px rgba(59, 130, 246, 0.5)" },
+  list: { bg: "bg-green-500/30", ring: "ring-green-500", text: "text-green-600 dark:text-green-400", glow: "0 0 20px rgba(34, 197, 94, 0.5)" },
+  write: { bg: "bg-orange-500/30", ring: "ring-orange-500", text: "text-orange-600 dark:text-orange-400", glow: "0 0 20px rgba(249, 115, 22, 0.5)" },
+  navigate: { bg: "bg-purple-500/30", ring: "ring-purple-500", text: "text-purple-600 dark:text-purple-400", glow: "0 0 20px rgba(168, 85, 247, 0.5)" },
+  search: { bg: "bg-yellow-500/30", ring: "ring-yellow-500", text: "text-yellow-600 dark:text-yellow-400", glow: "0 0 20px rgba(234, 179, 8, 0.5)" },
+  execute: { bg: "bg-red-500/30", ring: "ring-red-500", text: "text-red-600 dark:text-red-400", glow: "0 0 20px rgba(239, 68, 68, 0.5)" },
+  other: { bg: "bg-gray-500/30", ring: "ring-gray-500", text: "text-gray-600 dark:text-gray-400", glow: "0 0 20px rgba(107, 114, 128, 0.5)" },
 };
 
 export interface FileTreeViewerProps {
@@ -26,9 +27,6 @@ export interface FileTreeViewerProps {
   className?: string;
 }
 
-/**
- * Get all parent paths for a given path
- */
 function getParentPaths(path: string): string[] {
   const parents: string[] = [];
   const parts = path.split("/").filter(Boolean);
@@ -42,13 +40,8 @@ function getParentPaths(path: string): string[] {
   return parents;
 }
 
-/**
- * Normalize path for comparison (handle /sandbox vs sandbox, trailing slashes, etc.)
- */
 function normalizePath(path: string): string {
-  // Remove trailing slashes
   let normalized = path.replace(/\/+$/, "");
-  // Ensure leading slash
   if (!normalized.startsWith("/")) {
     normalized = "/" + normalized;
   }
@@ -61,7 +54,6 @@ export function FileTreeViewer({
   operation = "other",
   className,
 }: FileTreeViewerProps) {
-  // Normalize highlighted paths
   const normalizedHighlightedPaths = useMemo(() => {
     const normalized = new Set<string>();
     for (const path of highlightedPaths) {
@@ -70,20 +62,15 @@ export function FileTreeViewer({
     return normalized;
   }, [highlightedPaths]);
 
-  // Calculate which folders should be expanded to show highlighted paths
   const expandedPaths = useMemo(() => {
     const expanded = new Set<string>();
-
-    // Always expand the root
     expanded.add(normalizePath(filesystem.path));
 
-    // Expand all parent paths of highlighted items
     for (const path of normalizedHighlightedPaths) {
       const parents = getParentPaths(path);
       for (const parent of parents) {
         expanded.add(parent);
       }
-      // Also add the path itself if it's a directory
       expanded.add(path);
     }
 
@@ -92,35 +79,72 @@ export function FileTreeViewer({
 
   const colors = OPERATION_COLORS[operation];
 
-  // Render a node recursively
   const renderNode = (node: FileNode): React.ReactNode => {
     const normalizedNodePath = normalizePath(node.path);
     const isHighlighted = normalizedHighlightedPaths.has(normalizedNodePath);
 
-    const highlightClass = isHighlighted
-      ? cn(colors.bg, colors.ring, colors.text, "ring-2 font-semibold")
-      : undefined;
-
     if (node.type === "directory") {
       return (
-        <FileTreeFolder
-          key={node.path}
-          path={normalizedNodePath}
-          name={node.name}
-          className={highlightClass}
-        >
-          {node.children?.map(renderNode)}
-        </FileTreeFolder>
+        <div key={node.path} className="relative">
+          <AnimatePresence>
+            {isHighlighted && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className={cn(
+                  "absolute inset-0 rounded-md",
+                  colors.bg,
+                  colors.ring,
+                  "ring-2"
+                )}
+                style={{ boxShadow: colors.glow }}
+              />
+            )}
+          </AnimatePresence>
+          <FileTreeFolder
+            path={normalizedNodePath}
+            name={node.name}
+            className={cn(
+              "relative z-10 transition-colors duration-200",
+              isHighlighted && colors.text
+            )}
+          >
+            {node.children?.map(renderNode)}
+          </FileTreeFolder>
+        </div>
       );
     }
 
     return (
-      <FileTreeFile
-        key={node.path}
-        path={normalizedNodePath}
-        name={node.name}
-        className={highlightClass}
-      />
+      <div key={node.path} className="relative">
+        <AnimatePresence>
+          {isHighlighted && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className={cn(
+                "absolute inset-0 rounded-md",
+                colors.bg,
+                colors.ring,
+                "ring-2"
+              )}
+              style={{ boxShadow: colors.glow }}
+            />
+          )}
+        </AnimatePresence>
+        <FileTreeFile
+          path={normalizedNodePath}
+          name={node.name}
+          className={cn(
+            "relative z-10 transition-colors duration-200",
+            isHighlighted && colors.text
+          )}
+        />
+      </div>
     );
   };
 
