@@ -1,9 +1,8 @@
 import { Sandbox } from "@vercel/sandbox";
 import {
-  captureFilesystemSnapshot,
+  createInstrumentedTools,
   generateDemoFiles,
   saveSession,
-  SessionRecorder,
 } from "@/lib/traversal-recorder";
 import { registerRecorder, unregisterRecorder } from "../session/live/route";
 
@@ -26,38 +25,18 @@ export async function POST() {
         send("status", "Creating sandbox...");
         sandbox = await Sandbox.create({ runtime: "node24" });
 
-        // First, find out where we are
-        send("status", "Finding working directory...");
-        const pwdResult = await sandbox.runCommand("pwd");
-        const cwd = (await pwdResult.stdout()).trim();
-        send("status", `Working directory: ${cwd}`);
+        send("status", "Setting up instrumented tools with demo files...");
+        const { run, recorder, rootPath } = await createInstrumentedTools({
+          sandbox,
+          files: generateDemoFiles(),
+          onEntry: (entry) => send("entry", entry),
+          onFilesystemChange: (tree) => send("filesystem", tree),
+        });
 
-        // Create workspace directory and upload files there
-        const rootPath = `${cwd}/workspace`;
-        await sandbox.runCommand("mkdir", ["-p", rootPath]);
-
-        send("status", "Uploading demo files...");
-        const demoFiles = generateDemoFiles();
-        // Prepend workspace path to all files
-        const filesWithPath = demoFiles.map((f) => ({
-          ...f,
-          path: `${rootPath}/${f.path}`,
-        }));
-        await sandbox.writeFiles(filesWithPath);
-
-        send("status", "Setting up recorder...");
-        const recorder = new SessionRecorder(rootPath);
-
-        // Capture initial filesystem
-        const initialTree = await captureFilesystemSnapshot(sandbox, rootPath);
-        recorder.setFilesystem(initialTree);
+        send("status", `Working directory: ${rootPath}`);
 
         // Register for live streaming
         registerRecorder(recorder.sessionId, recorder);
-
-        // Forward events to SSE stream
-        recorder.on("entry", (entry) => send("entry", entry));
-        recorder.on("filesystem", (tree) => send("filesystem", tree));
 
         // Send initial state
         send("init", {
@@ -66,31 +45,6 @@ export async function POST() {
         });
 
         send("status", "Running exploration...");
-
-        // Helper to run command and record it
-        const run = async (cmd: string) => {
-          const startTime = Date.now();
-          const result = await sandbox!.runCommand("bash", [
-            "-c",
-            `cd ${rootPath} && ${cmd}`,
-          ]);
-          const stdout = await result.stdout();
-          const stderr = await result.stderr();
-          const exitCode = result.exitCode;
-
-          // Record the bash command
-          const entry = recorder.recordBash(
-            cmd,
-            { stdout, stderr, exitCode },
-            startTime
-          );
-
-          // Refresh filesystem if it was a write operation
-          if (entry.operation === "write") {
-            const newTree = await captureFilesystemSnapshot(sandbox!, rootPath);
-            recorder.setFilesystem(newTree);
-          }
-        };
 
         const delay = (ms: number) =>
           new Promise((resolve) => setTimeout(resolve, ms));
