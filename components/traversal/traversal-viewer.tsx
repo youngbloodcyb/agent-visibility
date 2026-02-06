@@ -26,8 +26,14 @@ export function TraversalViewer({
   const highlightedPaths = useMemo(() => {
     const paths = new Set<string>();
     if (playback.currentEntry) {
+      // Add resolved paths from the command
       for (const path of playback.currentEntry.resolvedPaths) {
         paths.add(path);
+      }
+      // If no paths were extracted, highlight the current working directory
+      // This handles commands like "ls -la" that implicitly operate on cwd
+      if (paths.size === 0 && playback.currentEntry.cwd) {
+        paths.add(playback.currentEntry.cwd);
       }
     }
     return paths;

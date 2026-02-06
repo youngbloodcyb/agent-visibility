@@ -29,11 +29,14 @@ function isLikelyPath(token: string): boolean {
   ];
   if (shellKeywords.includes(token)) return false;
 
+  // Current directory reference
+  if (token === ".") return true;
+
   // Paths that start with /, ./, or ../
   if (token.startsWith("/") || token.startsWith("./") || token.startsWith("../"))
     return true;
 
-  // Paths with file extensions
+  // Paths with file extensions (including dotfiles)
   if (/\.\w{1,10}$/.test(token)) return true;
 
   // Paths containing directory separators
@@ -58,8 +61,21 @@ function isLikelyPath(token: string): boolean {
     "test",
     "spec",
     "config",
+    "scripts",
+    "docs",
+    "hooks",
   ];
   if (commonDirs.includes(token)) return true;
+
+  // Common config files without extensions
+  const commonFiles = [
+    "Makefile",
+    "Dockerfile",
+    "README",
+    "LICENSE",
+    "CHANGELOG",
+  ];
+  if (commonFiles.includes(token)) return true;
 
   return false;
 }
@@ -71,6 +87,11 @@ export function resolvePath(path: string, cwd: string): string {
   // Already absolute
   if (path.startsWith("/")) {
     return normalizePath(path);
+  }
+
+  // Handle . (current directory)
+  if (path === ".") {
+    return normalizePath(cwd);
   }
 
   // Handle ./ prefix

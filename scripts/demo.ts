@@ -18,12 +18,26 @@ async function main() {
   const sandbox = await Sandbox.create({ runtime: "node24" });
 
   try {
+    // Find out where we are
+    console.log("📍 Finding working directory...");
+    const pwdResult = await sandbox.runCommand("pwd");
+    const cwd = (await pwdResult.stdout()).trim();
+    console.log(`   Working directory: ${cwd}`);
+
+    // Create workspace directory
+    const rootPath = `${cwd}/workspace`;
+    await sandbox.runCommand("mkdir", ["-p", rootPath]);
+
     console.log("📁 Uploading demo files...");
     const demoFiles = generateDemoFiles();
-    await sandbox.writeFiles(demoFiles);
+    // Prepend workspace path to all files
+    const filesWithPath = demoFiles.map((f) => ({
+      ...f,
+      path: `${rootPath}/${f.path}`,
+    }));
+    await sandbox.writeFiles(filesWithPath);
 
     console.log("🔧 Setting up recorder...");
-    const rootPath = "/sandbox";
     const recorder = new SessionRecorder(rootPath);
 
     // Capture initial filesystem
