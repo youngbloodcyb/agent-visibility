@@ -9,12 +9,15 @@ export interface UsePlaybackOptions {
   session: Session;
   autoPlay?: boolean;
   initialSpeed?: PlaybackSpeed;
+  /** When true, automatically follows the latest entry as new ones arrive */
+  followLive?: boolean;
 }
 
 export interface UsePlaybackReturn {
   currentIndex: number;
   currentEntry: TraversalEntry | null;
   isPlaying: boolean;
+  isFollowingLive: boolean;
   speed: PlaybackSpeed;
   totalEntries: number;
   progress: number;
@@ -26,25 +29,48 @@ export interface UsePlaybackReturn {
   stepForward: () => void;
   stepBack: () => void;
   reset: () => void;
+  followLatest: () => void;
 }
 
 export function usePlayback({
   session,
   autoPlay = false,
   initialSpeed = 1,
+  followLive = false,
 }: UsePlaybackOptions): UsePlaybackReturn {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(autoPlay);
+  const [isFollowingLive, setIsFollowingLive] = useState(followLive);
   const [speed, setSpeedState] = useState<PlaybackSpeed>(initialSpeed);
   const intervalRef = useRef<number | null>(null);
+  const prevEntriesLengthRef = useRef(session.entries.length);
 
   const entries = session.entries;
   const totalEntries = entries.length;
   const currentEntry = entries[currentIndex] ?? null;
-  const progress = totalEntries > 0 ? (currentIndex / (totalEntries - 1)) * 100 : 0;
+  const progress = totalEntries > 0 ? (currentIndex / Math.max(totalEntries - 1, 1)) * 100 : 0;
+
+  // Auto-follow when new entries arrive in live mode
+  useEffect(() => {
+    if (isFollowingLive && totalEntries > prevEntriesLengthRef.current) {
+      // New entry arrived, jump to it
+      setCurrentIndex(totalEntries - 1);
+    }
+    prevEntriesLengthRef.current = totalEntries;
+  }, [totalEntries, isFollowingLive]);
+
+  // Start following live when followLive prop changes to true
+  useEffect(() => {
+    if (followLive) {
+      setIsFollowingLive(true);
+      // Jump to latest entry
+      if (totalEntries > 0) {
+        setCurrentIndex(totalEntries - 1);
+      }
+    }
+  }, [followLive, totalEntries]);
 
   // Calculate interval based on speed
-  // Base interval is 1000ms, adjusted by speed
   const getInterval = useCallback(() => {
     return 1000 / speed;
   }, [speed]);
@@ -62,7 +88,7 @@ export function usePlayback({
 
   // Set up playback interval
   useEffect(() => {
-    if (isPlaying && totalEntries > 0) {
+    if (isPlaying && totalEntries > 0 && !isFollowingLive) {
       intervalRef.current = window.setInterval(advance, getInterval());
     }
 
@@ -72,9 +98,10 @@ export function usePlayback({
         intervalRef.current = null;
       }
     };
-  }, [isPlaying, advance, getInterval, totalEntries]);
+  }, [isPlaying, advance, getInterval, totalEntries, isFollowingLive]);
 
   const play = useCallback(() => {
+    setIsFollowingLive(false);
     if (currentIndex >= totalEntries - 1) {
       setCurrentIndex(0);
     }
@@ -99,6 +126,8 @@ export function usePlayback({
 
   const goTo = useCallback(
     (index: number) => {
+      // When user manually navigates, stop following live
+      setIsFollowingLive(false);
       const clampedIndex = Math.max(0, Math.min(index, totalEntries - 1));
       setCurrentIndex(clampedIndex);
     },
@@ -106,22 +135,34 @@ export function usePlayback({
   );
 
   const stepForward = useCallback(() => {
-    goTo(currentIndex + 1);
-  }, [currentIndex, goTo]);
+    setIsFollowingLive(false);
+    setCurrentIndex((prev) => Math.min(prev + 1, totalEntries - 1));
+  }, [totalEntries]);
 
   const stepBack = useCallback(() => {
-    goTo(currentIndex - 1);
-  }, [currentIndex, goTo]);
+    setIsFollowingLive(false);
+    setCurrentIndex((prev) => Math.max(prev - 1, 0));
+  }, []);
 
   const reset = useCallback(() => {
     setIsPlaying(false);
+    setIsFollowingLive(false);
     setCurrentIndex(0);
   }, []);
+
+  const followLatest = useCallback(() => {
+    setIsPlaying(false);
+    setIsFollowingLive(true);
+    if (totalEntries > 0) {
+      setCurrentIndex(totalEntries - 1);
+    }
+  }, [totalEntries]);
 
   return {
     currentIndex,
     currentEntry,
     isPlaying,
+    isFollowingLive,
     speed,
     totalEntries,
     progress,
@@ -133,5 +174,6 @@ export function usePlayback({
     stepForward,
     stepBack,
     reset,
+    followLatest,
   };
 }

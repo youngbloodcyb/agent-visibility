@@ -20,7 +20,7 @@ export function TraversalViewer({
   isLive = false,
   className,
 }: TraversalViewerProps) {
-  const playback = usePlayback({ session });
+  const playback = usePlayback({ session, followLive: isLive });
 
   // Get highlighted paths from current entry
   const highlightedPaths = useMemo(() => {
