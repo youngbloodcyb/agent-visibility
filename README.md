@@ -1,3 +1,5 @@
+<img width="3000" height="1552" alt="CleanShot 2026-02-06 at 16 58 02@2x" src="https://github.com/user-attachments/assets/ca6cc304-8043-41c8-8180-06bf589b86fc" />
+
 # Bash Tool Visualizer
 
 A tool for recording and visualizing bash command execution in sandboxed environments. It wraps `bash-tool` with instrumentation hooks to track every command, capture filesystem snapshots, and produce a traversal log for playback/visualization.
