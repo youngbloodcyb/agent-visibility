@@ -14,7 +14,7 @@ The core is `createInstrumentedTools()` which:
 
 ## Routes
 
-- `/demo` - Interactive demo to run bash commands in a sandbox and record the session
+- `/demo` - Interactive demo to run bash commands in a sandbox and record the session. Note: the demo doesn't use a full AI agent—it mimics one by executing commands directly via the `run()` helper to demonstrate the recording/visualization.
 - `/traversal` - List all saved traversal sessions
 - `/traversal/[id]` - View and playback a specific traversal
 
